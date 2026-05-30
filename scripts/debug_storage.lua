@@ -103,7 +103,7 @@ print("Printing...")
 
 -- Print
 out("STORAGE CONTENTS")
-out("Date: " .. os.date and os.date() or "unknown")
+out("Date: " .. tostring(os.date and os.date() or os.time()))
 out(string.rep("-", 25))
 out("")
 
