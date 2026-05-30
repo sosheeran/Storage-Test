@@ -1,5 +1,6 @@
 -- storage_log.lua
 -- Shows current stock levels for all items in storage.cfg
+-- Prints to printer on left side
 --
 -- Usage:
 --   storage_log              show all
@@ -8,6 +9,7 @@
 --   storage_log --high       show only high/overflow
 
 local storage = require("/scripts/lib/storage")
+local printer = require("/scripts/lib/printer")
 
 local args      = {...}
 local filter    = nil
@@ -15,25 +17,33 @@ local low_only  = false
 local high_only = false
 
 for _, a in ipairs(args) do
-  if a == "--low"  then low_only  = true
-  elseif a == "--high" then high_only = true
+  if a == "--low"       then low_only  = true
+  elseif a == "--high"  then high_only = true
   else filter = a:lower() end
 end
 
 local LOW  = 10
 local HIGH = 85
-local W    = term.getSize()
 
-local function bar(pct, w)
-  w   = w or 15
-  pct = math.max(0, math.min(100, pct))
-  local f = math.floor(pct/100*w)
-  return string.rep("#",f) .. string.rep("-",w-f)
+local title = "Stock Log"
+if filter    then title = "Stock: " .. filter end
+if low_only  then title = "Stock LOW"  end
+if high_only then title = "Stock HIGH" end
+
+local has_printer = printer.open(title)
+
+local function out(line)
+  if has_printer then
+    printer.writeLine(line or "")
+  else
+    print(line or "")
+  end
 end
 
 local store = storage.load()
 if not next(store) then
-  print("storage.cfg is empty - run: discover")
+  out("storage.cfg empty - run: discover")
+  if has_printer then printer.close() end
   return
 end
 
@@ -50,8 +60,11 @@ for key, data in pairs(store) do
     if high_only and pct < HIGH and not overflow then show = false end
     if show then
       table.insert(results, {
-        display=data.display, mod=data.mod,
-        total=total, pct=pct, overflow=overflow
+        display  = data.display,
+        mod      = data.mod,
+        total    = total,
+        pct      = pct,
+        overflow = overflow,
       })
     end
   end
@@ -62,25 +75,37 @@ table.sort(results, function(a,b)
   return a.display < b.display
 end)
 
-print(string.rep("=", W))
-print("  STORAGE LOG" .. (filter and (" [" .. filter .. "]") or ""))
-print(string.rep("=", W))
+out(title:upper())
+out(string.rep("-", 25))
+out("")
 
 local low_n, high_n, overflow_n = 0, 0, 0
+local current_mod = nil
+
 for _, r in ipairs(results) do
-  local color = colors.white
-  local tag   = "      "
-  if r.overflow        then color=colors.red;    tag="OFLOW "; overflow_n=overflow_n+1
-  elseif r.pct>=HIGH   then color=colors.orange; tag="HIGH  "; high_n=high_n+1
-  elseif r.pct<=LOW    then color=colors.yellow; tag="LOW   "; low_n=low_n+1
+  if r.mod ~= current_mod then
+    if current_mod then out("") end
+    out("[" .. r.mod:upper():sub(1,23) .. "]")
+    current_mod = r.mod
   end
-  term.setTextColor(color)
-  print(string.format("%-26s %-8s [%s] %6d  %s%d%%",
-    r.display:sub(1,25), r.mod:sub(1,7),
-    bar(r.pct,15), r.total, tag, r.pct))
-  term.setTextColor(colors.white)
+
+  local tag = ""
+  if r.overflow        then tag=" OVERFLOW"; overflow_n=overflow_n+1
+  elseif r.pct>=HIGH   then tag=" HIGH";     high_n=high_n+1
+  elseif r.pct<=LOW    then tag=" LOW";      low_n=low_n+1
+  end
+
+  -- Format: "  Item Name   42%" or "  Item Name   42% HIGH"
+  local name_part = ("  " .. r.display):sub(1, 18)
+  local pct_part  = string.format("%3d%%%s", r.pct, tag)
+  out(string.format("%-18s %s", name_part, pct_part))
 end
 
-print(string.rep("-", W))
-print(string.format("Items: %d  |  Low: %d  High: %d  Overflow: %d",
-  #results, low_n, high_n, overflow_n))
+out("")
+out(string.rep("-", 25))
+out(string.format("Items: %d", #results))
+if low_n      > 0 then out("Low:      " .. low_n)      end
+if high_n     > 0 then out("High:     " .. high_n)     end
+if overflow_n > 0 then out("Overflow: " .. overflow_n) end
+
+if has_printer then printer.close() end

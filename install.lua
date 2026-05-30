@@ -9,6 +9,7 @@ local FILES = {
   {"scripts/debug_storage.lua",  "/debug_storage.lua"},
   {"scripts/storage_log.lua",    "/storage_log.lua"},
   {"scripts/lib/storage.lua",    "/scripts/lib/storage.lua"},
+  {"scripts/lib/printer.lua",    "/scripts/lib/printer.lua"},
 }
 
 local DIRS = {"/data", "/scripts", "/scripts/lib"}
