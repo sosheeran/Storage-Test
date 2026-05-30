@@ -1,21 +1,17 @@
--- scripts/lib/storage.lua
--- Storage library for standalone scripts
+-- lib/storage.lua
 -- Handles storage.cfg read/write and chest stock queries
 
 local M = {}
 
-local CFG         = "/storage/data/storage.cfg"
-local CHEST_SLOTS = 108  -- obsidian chest slot count
+local CFG         = "/data/storage.cfg"
+local CHEST_SLOTS = 108
 
--- Build canonical item key from name and damage value
 function M.makeKey(name, damage)
   damage = damage or 0
   if damage == 0 then return name end
   return name .. ":" .. tostring(damage)
 end
 
--- Load storage.cfg
--- Format: key | bottom | mid | top | display | mod
 function M.load()
   local store = {}
   local f = fs.open(CFG, "r")
@@ -42,78 +38,62 @@ function M.load()
   return store
 end
 
--- Save storage.cfg
 function M.save(store)
-  -- Make sure directory exists
-  if not fs.exists("/storage/data") then
-    fs.makeDir("/storage/data")
-  end
+  if not fs.exists("/data") then fs.makeDir("/data") end
   local f = fs.open(CFG, "w")
-  if not f then
-    print("ERROR: Cannot write to " .. CFG)
-    return false
-  end
-  f.writeLine("# key | bottom_chest | mid_chest | top_chest | display | mod")
-  -- Sort keys for consistent output
+  if not f then return false end
+  f.writeLine("# key | bottom | mid | top | display | mod")
   local keys = {}
   for k in pairs(store) do table.insert(keys, k) end
   table.sort(keys)
   for _, key in ipairs(keys) do
-    local data = store[key]
+    local d = store[key]
     f.writeLine(
-      key               .. " | " ..
-      data.chest        .. " | " ..
-      (data.mid  or "") .. " | " ..
-      (data.top  or "") .. " | " ..
-      data.display      .. " | " ..
-      data.mod
+      key          .. " | " ..
+      d.chest      .. " | " ..
+      (d.mid  or "") .. " | " ..
+      (d.top  or "") .. " | " ..
+      d.display    .. " | " ..
+      d.mod
     )
   end
   f.close()
   return true
 end
 
--- Count items in a single chest
--- Returns: count, slots_used
-local function countChest(name)
-  if not name or name == "" then return 0, 0 end
-  local c = peripheral.wrap(name)
-  if not c then return 0, 0 end
-  local count, slots = 0, 0
-  local ok, items = pcall(c.list)
-  if not ok or not items then return 0, 0 end
-  for _, stack in pairs(items) do
-    count = count + stack.count
-    slots = slots + 1
-  end
-  return count, slots
-end
-
--- Get stock for an item column
--- Returns: total_count, pct_full(0-100), overflow_warning
 function M.getStock(data)
-  local bot_count, bot_slots = countChest(data.chest)
-  local bot_full = (bot_slots >= CHEST_SLOTS)
-  local total    = bot_count
+  local function count(name)
+    if not name or name == "" then return 0, 0 end
+    local c = peripheral.wrap(name)
+    if not c then return 0, 0 end
+    local n, s = 0, 0
+    local ok, items = pcall(c.list)
+    if ok and items then
+      for _, stack in pairs(items) do
+        n = n + stack.count
+        s = s + 1
+      end
+    end
+    return n, s
+  end
 
-  if bot_full then
-    local mid_count, mid_slots = countChest(data.mid)
-    total = total + mid_count
-    if mid_slots >= CHEST_SLOTS then
-      local top_count = countChest(data.top)
-      total = total + top_count
+  local bot_n, bot_s = count(data.chest)
+  local total = bot_n
+  if bot_s >= CHEST_SLOTS then
+    local mid_n, mid_s = count(data.mid)
+    total = total + mid_n
+    if mid_s >= CHEST_SLOTS then
+      total = total + count(data.top)
     end
   end
 
-  -- Overflow: top chest at 75%+ capacity
   local overflow = false
   if data.top and data.top ~= "" then
-    local _, top_slots = countChest(data.top)
-    overflow = (top_slots >= math.floor(CHEST_SLOTS * 0.75))
+    local _, top_s = count(data.top)
+    overflow = top_s >= math.floor(CHEST_SLOTS * 0.75)
   end
 
-  local max = CHEST_SLOTS * 3 * 64
-  local pct = math.floor((total / max) * 100)
+  local pct = math.floor(total / (CHEST_SLOTS * 3 * 64) * 100)
   return total, pct, overflow
 end
 
