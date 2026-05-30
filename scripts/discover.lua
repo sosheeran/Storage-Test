@@ -90,13 +90,22 @@ while i <= #chests do
       end
 
       if meta then
-        -- FIX: include damage value in key
-        -- This ensures vis crystals (same name, different damage)
-        -- each get their own unique entry
         local damage  = meta.damage or 0
-        local key     = storage.makeKey(meta.name, damage)
         local display = meta.displayName or meta.name
         local mod     = meta.name:match("^(.-):")  or "unknown"
+
+        -- Build key: use name + damage normally
+        -- For NBT-differentiated items (like vis crystals) that share
+        -- the same name AND damage, append the display name to make unique
+        local base_key = storage.makeKey(meta.name, damage)
+        local key      = base_key
+
+        -- If this key already exists but points to a different chest,
+        -- it means two different items share the same ID+damage (NBT variants)
+        -- Use display name to differentiate them
+        if store[key] and store[key].chest ~= bot.name then
+          key = base_key .. ":" .. display:lower():gsub("%s+","_")
+        end
 
         if store[key] then
           out("SKIP: " .. display .. " (mapped)")
