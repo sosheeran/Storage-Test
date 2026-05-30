@@ -1,8 +1,8 @@
 -- install.lua
 -- MC-TWEAKED Installer
--- wget https://raw.githubusercontent.com/sosheeran/MC-Network-Test/main/install.lua install && install
+-- wget https://raw.githubusercontent.com/sosheeran/Storage-Test/main/install.lua install && install
 
-local REPO = "https://raw.githubusercontent.com/sosheeran/MC-Network-Test/main/"
+local REPO = "https://raw.githubusercontent.com/sosheeran/Storage-Test/main/"
 local ID   = os.getComputerID()
 
 local SHARED = {
