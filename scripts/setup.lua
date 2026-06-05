@@ -312,13 +312,16 @@ if valid then
     print("Setup complete - no changes made")
     return
   end
-elseif issues and #issues > 0 then
+elseif type(issues) == "table" and #issues > 0 then
   warn("Config has issues:")
   for _, issue in ipairs(issues) do
-    err("  " .. issue)
+    err(" " .. issue)
   end
   print("")
   print("Run setup to reconfigure")
+  print("")
+elseif type(issues) == "string" then
+  warn(issues)
   print("")
 end
 
