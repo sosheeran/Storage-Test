@@ -46,6 +46,7 @@ end
 print("")
 print("Commands:")
 print("  setup           configure bash/buffer/columns")
-  print("  discover        scan chests → storage.cfg")
+print("  discover        scan chests → storage.cfg")
 print("  debug_storage   list all items → printer")
 print("  storage_log     show stock levels → printer")
+print("  health        audit storage health -> monitor")

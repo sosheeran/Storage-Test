@@ -10,12 +10,22 @@
 --   - storage columns have 3 chests
 --   - mapped chests are online
 --   - duplicate assignments
---   - accidental use of special chests in storage
 --   - mixed-item columns
 --   - rough fullness per column
+--
+-- Also:
+--   - Displays local warning summary on attached monitor
+
+-- ============================================================
+-- PATHS
+-- ============================================================
 
 local CONFIG_PATH  = "/data/config.cfg"
 local COLUMNS_PATH = "/data/columns.cfg"
+
+-- ============================================================
+-- BASIC UI
+-- ============================================================
 
 local function color(c)
   if term.isColor and term.isColor() then
@@ -51,9 +61,13 @@ local function info(msg)
   reset()
 end
 
+-- ============================================================
+-- HELPERS
+-- ============================================================
+
 local function trim(s)
   if not s then return "" end
-  return s:match("^%s*(.-)%s*$")
+  return tostring(s):match("^%s*(.-)%s*$")
 end
 
 local function chestNum(name)
@@ -65,10 +79,119 @@ local function isOnline(name)
   return type(name) == "string" and peripheral.wrap(name) ~= nil
 end
 
-local function isInventory(name)
-  local p = peripheral.wrap(name)
-  return p and type(p.list) == "function"
+local function centerText(text, width)
+  text = tostring(text)
+  local pad = math.max(0, width - #text)
+  local left = math.floor(pad / 2)
+  local right = pad - left
+  return string.rep(" ", left) .. text .. string.rep(" ", right)
 end
+
+local function countKeys(t)
+  local n = 0
+  for _ in pairs(t) do n = n + 1 end
+  return n
+end
+
+local function firstKey(t)
+  for k in pairs(t) do return k end
+  return nil
+end
+
+local function mergeCounts(target, source)
+  for k, v in pairs(source) do
+    target[k] = (target[k] or 0) + v
+  end
+end
+
+-- ============================================================
+-- MONITOR DISPLAY
+-- ============================================================
+
+local function getMonitor()
+  local mon = peripheral.find("monitor")
+  if not mon then return nil end
+
+  pcall(mon.setTextScale, 0.5)
+  pcall(mon.setBackgroundColor, colors.black)
+  pcall(mon.setTextColor, colors.white)
+
+  return mon
+end
+
+local function displayWarningsOnMonitor(warnings)
+  local mon = getMonitor()
+  if not mon then
+    warn("No monitor found for warning display.")
+    return false
+  end
+
+  mon.clear()
+  mon.setCursorPos(1, 1)
+
+  local oldTerm = term.redirect(mon)
+  local w, h = term.getSize()
+
+  term.setBackgroundColor(colors.black)
+  term.clear()
+
+  term.setTextColor(colors.yellow)
+  term.setCursorPos(1, 1)
+  term.write(centerText("STORAGE HEALTH", w))
+
+  term.setTextColor(colors.white)
+  term.setCursorPos(1, 2)
+  term.write(string.rep("-", w))
+
+  if #warnings == 0 then
+    term.setTextColor(colors.green)
+    term.setCursorPos(1, 4)
+    term.write(centerText("All systems healthy", w))
+
+    term.setTextColor(colors.lightGray)
+    term.setCursorPos(1, 6)
+    term.write(centerText("No warnings found", w))
+
+    term.redirect(oldTerm)
+    return true
+  end
+
+  term.setTextColor(colors.red)
+  term.setCursorPos(1, 4)
+  term.write("WARNINGS: " .. tostring(#warnings))
+
+  local line = 6
+  term.setTextColor(colors.yellow)
+
+  for i, msg in ipairs(warnings) do
+    if line > h then
+      break
+    end
+
+    term.setCursorPos(1, line)
+
+    local text = tostring(i) .. ". " .. tostring(msg)
+    if #text > w then
+      text = text:sub(1, math.max(1, w - 3)) .. "..."
+    end
+
+    term.write(text)
+    line = line + 1
+  end
+
+  if #warnings > (h - 5) then
+    term.setTextColor(colors.lightGray)
+    term.setCursorPos(1, h)
+    term.write("More warnings in terminal")
+  end
+
+  term.redirect(oldTerm)
+  return true
+end
+
+-- ============================================================
+-- CONFIG LOADING
+-- ============================================================
 
 local function loadConfig()
   local cfg = {}
@@ -84,10 +207,16 @@ local function loadConfig()
 
   local line = f.readLine()
   while line do
-    local k, v = line:match("^%s*(.-)%s*=%s*(.-)%s*$")
-    if k and v and k ~= "" then
-      cfg[trim(k)] = trim(v)
+    local clean = trim(line)
+
+    if clean ~= "" and not clean:match("^#") then
+      local k, v = clean:match("^%s*(.-)%s*=%s*(.-)%s*$")
+
+      if k and v and k ~= "" then
+        cfg[trim(k)] = trim(v)
+      end
     end
+
     line = f.readLine()
   end
 
@@ -137,8 +266,13 @@ local function loadColumns()
   return columns
 end
 
+-- ============================================================
+-- INVENTORY STATS
+-- ============================================================
+
 local function getInventoryStats(name)
   local inv = peripheral.wrap(name)
+
   if not inv or not inv.list then
     return {
       online = false,
@@ -150,6 +284,7 @@ local function getInventoryStats(name)
   end
 
   local totalSlots = 0
+
   if inv.size then
     local okSize, size = pcall(inv.size)
     if okSize and size then
@@ -162,14 +297,15 @@ local function getInventoryStats(name)
   local totalItems = 0
 
   local okList, items = pcall(inv.list)
+
   if okList and items then
-    for slot, stack in pairs(items) do
+    for _, stack in pairs(items) do
       if stack then
         usedSlots = usedSlots + 1
         totalItems = totalItems + (stack.count or 0)
 
-        local name = stack.name or "unknown"
-        itemCounts[name] = (itemCounts[name] or 0) + (stack.count or 0)
+        local itemName = stack.name or "unknown"
+        itemCounts[itemName] = (itemCounts[itemName] or 0) + (stack.count or 0)
       end
     end
   end
@@ -183,22 +319,9 @@ local function getInventoryStats(name)
   }
 end
 
-local function countKeys(t)
-  local n = 0
-  for _ in pairs(t) do n = n + 1 end
-  return n
-end
-
-local function firstKey(t)
-  for k in pairs(t) do return k end
-  return nil
-end
-
-local function mergeCounts(target, source)
-  for k, v in pairs(source) do
-    target[k] = (target[k] or 0) + v
-  end
-end
+-- ============================================================
+-- COLUMN REPORT
+-- ============================================================
 
 local function printColumnReport(i, col)
   local names = {
@@ -213,7 +336,7 @@ local function printColumnReport(i, col)
   local mergedItems = {}
   local offline = false
 
-  for level, name in pairs(names) do
+  for _, name in pairs(names) do
     local stats = getInventoryStats(name)
 
     if not stats.online then
@@ -223,6 +346,7 @@ local function printColumnReport(i, col)
     totalSlots = totalSlots + stats.totalSlots
     usedSlots = usedSlots + stats.usedSlots
     totalItems = totalItems + stats.totalItems
+
     mergeCounts(mergedItems, stats.itemCounts)
   end
 
@@ -253,7 +377,7 @@ local function printColumnReport(i, col)
 
   color(statusColor)
   print(string.format(
-    "%-5d %-8s %-8s %-8s %-8s %-7s %s",
+    "%-5d %-8s %-8s %-8s %-8s %-8s %s",
     i,
     chestNum(col.bottom),
     chestNum(col.mid),
@@ -269,12 +393,22 @@ local function printColumnReport(i, col)
     mixed = itemTypes > 1,
     full = fullness >= 90,
     empty = itemTypes == 0,
+    fullness = fullness,
+    mainItem = mainItem,
+    totalItems = totalItems,
   }
 end
 
+-- ============================================================
+-- MAIN
+-- ============================================================
+
 local function main()
+  term.setBackgroundColor(colors.black)
   term.clear()
   term.setCursorPos(1, 1)
+
+  local warnings = {}
 
   color(colors.yellow)
   print("=== STORAGE HEALTH CHECK ===")
@@ -284,12 +418,16 @@ local function main()
   local cfg, cfgErr = loadConfig()
   if not cfg then
     err(cfgErr)
+    table.insert(warnings, cfgErr)
+    displayWarningsOnMonitor(warnings)
     return
   end
 
   local columns, colErr = loadColumns()
   if not columns then
     err(colErr)
+    table.insert(warnings, colErr)
+    displayWarningsOnMonitor(warnings)
     return
   end
 
@@ -298,27 +436,39 @@ local function main()
   info("Columns: " .. tostring(#columns))
   print("")
 
-  -- Build assignment map.
+  -- ============================================================
+  -- ASSIGNMENT / DUPLICATE CHECK
+  -- ============================================================
+
   local assigned = {}
   local duplicateCount = 0
 
   local function addAssignment(name, label)
     if not name or name == "" then
-      err(label .. " is blank")
+      local msg = label .. " is blank"
+      err(msg)
+      table.insert(warnings, msg)
       return
     end
 
     if assigned[name] then
-      err("Duplicate assignment: " .. name)
-      err("  Used by: " .. assigned[name])
-      err("  Used by: " .. label)
+      local msg = "Duplicate chest " .. chestNum(name)
+
+      err("Duplicate assignment: " .. tostring(name))
+      err("  Used by: " .. tostring(assigned[name]))
+      err("  Used by: " .. tostring(label))
+
+      table.insert(warnings, msg)
       duplicateCount = duplicateCount + 1
     else
       assigned[name] = label
     end
   end
 
-  -- Special chests.
+  -- ============================================================
+  -- SPECIAL CHESTS
+  -- ============================================================
+
   color(colors.cyan)
   print("Special chests:")
   reset()
@@ -329,25 +479,34 @@ local function main()
     if isOnline(v) then
       ok(tostring(k) .. " online: chest " .. chestNum(v))
     else
-      err(tostring(k) .. " OFFLINE: " .. tostring(v))
+      local msg = tostring(k) .. " chest offline"
+      err(msg .. ": " .. tostring(v))
+      table.insert(warnings, msg)
     end
   end
 
   print("")
 
-  -- Columns.
+  -- ============================================================
+  -- STORAGE ASSIGNMENTS
+  -- ============================================================
+
   for i, col in ipairs(columns) do
     addAssignment(col.bottom, "column " .. i .. " bottom")
     addAssignment(col.mid,    "column " .. i .. " mid")
     addAssignment(col.top,    "column " .. i .. " top")
   end
 
+  -- ============================================================
+  -- COLUMN REPORT
+  -- ============================================================
+
   color(colors.cyan)
   print("Column summary:")
   reset()
 
   print(string.format(
-    "%-5s %-8s %-8s %-8s %-8s %-7s %s",
+    "%-5s %-8s %-8s %-8s %-8s %-8s %s",
     "COL",
     "BOTTOM",
     "MID",
@@ -357,7 +516,7 @@ local function main()
     "ITEM"
   ))
 
-  print(string.rep("-", 72))
+  print(string.rep("-", 74))
 
   local offlineCols = 0
   local mixedCols = 0
@@ -367,11 +526,29 @@ local function main()
   for i, col in ipairs(columns) do
     local result = printColumnReport(i, col)
 
-    if result.offline then offlineCols = offlineCols + 1 end
-    if result.mixed then mixedCols = mixedCols + 1 end
-    if result.full then fullCols = fullCols + 1 end
-    if result.empty then emptyCols = emptyCols + 1 end
+    if result.offline then
+      offlineCols = offlineCols + 1
+      table.insert(warnings, "Column " .. tostring(i) .. " offline")
+    end
+
+    if result.mixed then
+      mixedCols = mixedCols + 1
+      table.insert(warnings, "Column " .. tostring(i) .. " mixed items")
+    end
+
+    if result.full then
+      fullCols = fullCols + 1
+      table.insert(warnings, "Column " .. tostring(i) .. " nearly full")
+    end
+
+    if result.empty then
+      emptyCols = emptyCols + 1
+    end
   end
+
+  -- ============================================================
+  -- SUMMARY
+  -- ============================================================
 
   print("")
   color(colors.yellow)
@@ -383,6 +560,7 @@ local function main()
   print(" Nearly full cols:  " .. tostring(fullCols))
   print(" Empty columns:     " .. tostring(emptyCols))
   print(" Duplicates:        " .. tostring(duplicateCount))
+  print(" Total warnings:    " .. tostring(#warnings))
   print("")
 
   if offlineCols == 0 and mixedCols == 0 and duplicateCount == 0 then
@@ -390,6 +568,12 @@ local function main()
   else
     warn("Storage map needs attention.")
     warn("Use column_edit to repair changed or duplicate chests.")
+  end
+
+  print("")
+
+  if displayWarningsOnMonitor(warnings) then
+    ok("Health summary sent to monitor.")
   end
 end
 
