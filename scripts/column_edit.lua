@@ -43,6 +43,14 @@ local function setColor(color)
   end
 end
 
+local function centerText(text, width)
+  text = tostring(text)
+  local pad = math.max(0, width - #text)
+  local left = math.floor(pad / 2)
+  local right = pad - left
+  return string.rep(" ", left) .. text .. string.rep(" ", right)
+end
+
 local function resetColor()
   setColor(colors.white)
 end
@@ -167,7 +175,7 @@ local function drawMonitorChest(mon, y, label, name)
     "|                   |",
     "|---------[O]-------|",
     "|                   |",
-    "|        " .. tostring(num) .. string.rep(" ", math.max(0, 9 - #tostring(num))) .. "|",
+    "| " .. centerText(num, 17) .. " |",
     "|                   |",
     "+-------------------+",
   }
