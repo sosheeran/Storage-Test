@@ -5,6 +5,8 @@
 local REPO = "https://raw.githubusercontent.com/sosheeran/Storage-Test/main/"
 
 local FILES = {
+  {"scripts/setup.lua",          "/setup.lua"},
+  {"scripts/column_edit.lua",     "/column_edit.lua"},
   {"scripts/discover.lua",       "/discover.lua"},
   {"scripts/debug_storage.lua",  "/debug_storage.lua"},
   {"scripts/storage_log.lua",    "/storage_log.lua"},
@@ -42,6 +44,7 @@ else
 end
 print("")
 print("Commands:")
-print("  discover        scan chests → storage.cfg")
+print("  setup           configure bash/buffer/columns")
+  print("  discover        scan chests → storage.cfg")
 print("  debug_storage   list all items → printer")
 print("  storage_log     show stock levels → printer")

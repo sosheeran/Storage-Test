@@ -1,9 +1,12 @@
 -- discover.lua
--- Scans obsidian chests, groups into columns of 3
+-- Scans storage columns defined in /data/columns.cfg
 -- Identifies contents of each bottom chest
 -- Handles NBT-differentiated items (vis crystals etc)
 -- Writes to /data/storage.cfg
 -- Prints results to printer on left side
+--
+-- Run setup.lua first to configure columns
+-- Usage: discover
 
 local storage = require("/scripts/lib/storage")
 local printer = require("/scripts/lib/printer")
@@ -14,110 +17,174 @@ if not rednet.isOpen(MODEM) then pcall(rednet.open, MODEM) end
 local has_printer = printer.open("Discover")
 
 local function out(line)
-  if has_printer then printer.writeLine(line)
-  else print(line) end
+  if has_printer then printer.writeLine(line or "")
+  else print(line or "") end
 end
 
--- Collect all obsidian chests
-local chests = {}
-for _, name in ipairs(peripheral.getNames()) do
-  if name:find("iron_chest_obsidian") or
-     name:find("ironchest_obsidian") then
-    local num = tonumber(name:match("_(%d+)$"))
-    if num then table.insert(chests, {name=name, num=num}) end
+local function loadConfig()
+  local cfg = {}
+  if not fs.exists("/data/config.cfg") then
+    return nil, "config.cfg not found - run setup first"
   end
+  local f = fs.open("/data/config.cfg", "r")
+  local line = f.readLine()
+  while line do
+    local k, v = line:match("^%s*(.-)%s*=%s*(.-)%s*$")
+    if k and v and k ~= "" then cfg[k] = v end
+    line = f.readLine()
+  end
+  f.close()
+  if not cfg.bash   then return nil, "bash not configured"   end
+  if not cfg.buffer then return nil, "buffer not configured" end
+  return cfg, nil
 end
 
-if #chests == 0 then
-  out("No obsidian chests found.")
-  out("Check modem + cable connections.")
+local function loadColumns()
+  local columns = {}
+  if not fs.exists("/data/columns.cfg") then
+    return nil, "columns.cfg not found - run setup first"
+  end
+  local f = fs.open("/data/columns.cfg", "r")
+  local line = f.readLine()
+  while line do
+    if not line:match("^#") and line:match("|") then
+      local bot, mid, top = line:match(
+        "^%s*(.-)%s*|%s*(.-)%s*|%s*(.-)%s*$")
+      if bot and mid and top and
+         bot ~= "" and mid ~= "" and top ~= "" then
+        table.insert(columns, {bottom=bot, mid=mid, top=top})
+      end
+    end
+    line = f.readLine()
+  end
+  f.close()
+  if #columns == 0 then
+    return nil, "No columns defined - run setup first"
+  end
+  return columns, nil
+end
+
+local function validate(cfg, columns)
+  local issues = {}
+  if not peripheral.wrap(cfg.bash) then
+    table.insert(issues, "BASH offline: " .. cfg.bash)
+  end
+  if not peripheral.wrap(cfg.buffer) then
+    table.insert(issues, "BUFFER offline: " .. cfg.buffer)
+  end
+  if cfg.bash == cfg.buffer then
+    table.insert(issues, "Bash and buffer are same chest!")
+  end
+  for i, col in ipairs(columns) do
+    for pos, chest in pairs({
+      bottom=col.bottom, mid=col.mid, top=col.top}) do
+      if chest == cfg.bash then
+        table.insert(issues,
+          "Bash is in column " .. i .. " " .. pos .. "!")
+      end
+      if chest == cfg.buffer then
+        table.insert(issues,
+          "Buffer is in column " .. i .. " " .. pos .. "!")
+      end
+      if not peripheral.wrap(chest) then
+        table.insert(issues,
+          "Col " .. i .. " " .. pos .. " offline: " .. chest)
+      end
+    end
+  end
+  return issues
+end
+
+-- Main
+out("=== DISCOVER ===")
+out("")
+
+local cfg, cfg_err = loadConfig()
+if not cfg then
+  out("ERROR: " .. cfg_err)
   if has_printer then printer.close() end
   return
 end
 
-table.sort(chests, function(a,b) return a.num < b.num end)
-out("Found " .. #chests .. " chests")
-if #chests % 3 ~= 0 then out("WARN: not divisible by 3") end
-out("")
-
-local store   = storage.load()
-local found, skipped, empty, errors = 0, 0, 0, 0
-
--- Build a lookup of chest names already in store
--- so we can detect if a key exists but for a DIFFERENT chest
--- (NBT items like vis crystals share same ID+damage)
-local chest_to_key = {}
-for key, data in pairs(store) do
-  chest_to_key[data.chest] = key
+local columns, col_err = loadColumns()
+if not columns then
+  out("ERROR: " .. col_err)
+  if has_printer then printer.close() end
+  return
 end
 
-local i = 1
-while i <= #chests do
-  local bot = chests[i]
-  local mid = chests[i+1]
-  local top = chests[i+2]
+out("Bash:    " .. cfg.bash)
+out("Buffer:  " .. cfg.buffer)
+out("Columns: " .. #columns)
+out("")
 
-  if not mid or not top then
-    out("SKIP: incomplete at " .. bot.name)
+local issues = validate(cfg, columns)
+if #issues > 0 then
+  out("WARNINGS:")
+  for _, issue in ipairs(issues) do
+    out("  ! " .. issue)
+  end
+  local fatal = false
+  for _, issue in ipairs(issues) do
+    if issue:find("same chest") or issue:find("is in column") then
+      fatal = true
+    end
+  end
+  if fatal then
+    out("Fatal errors - run setup to fix")
+    if has_printer then printer.close() end
+    return
+  end
+  out("")
+end
+
+local store = storage.load()
+local found, skipped, empty, errors = 0, 0, 0, 0
+
+for col_idx, col in ipairs(columns) do
+  local chest = peripheral.wrap(col.bottom)
+  if not chest then
+    out("OFFLINE: col " .. col_idx)
     errors = errors + 1
-    i = i + 1
-  elseif mid.num ~= bot.num+1 or top.num ~= bot.num+2 then
-    out("SKIP: non-consecutive " ..
-        bot.num..","..mid.num..","..top.num)
-    errors = errors + 1
-    i = i + 1
   else
-    local chest = peripheral.wrap(bot.name)
-    if not chest then
-      out("OFFLINE: " .. bot.name)
-      errors = errors + 1
-      i = i + 3
-    else
-      local meta = nil
-      local ok_list, items = pcall(chest.list)
-      if ok_list and items then
-        for slot, _ in pairs(items) do
-          local ok_meta, m = pcall(chest.getItemMeta, slot)
-          if ok_meta and m then meta = m; break end
-        end
+    local meta = nil
+    local ok_list, items = pcall(chest.list)
+    if ok_list and items then
+      for slot, _ in pairs(items) do
+        local ok_meta, m = pcall(chest.getItemMeta, slot)
+        if ok_meta and m then meta = m; break end
+      end
+    end
+
+    if meta then
+      local damage   = meta.damage or 0
+      local display  = meta.displayName or meta.name
+      local mod      = meta.name:match("^(.-):")  or "unknown"
+      local base_key = storage.makeKey(meta.name, damage)
+      local key      = base_key
+
+      if store[key] and store[key].chest ~= col.bottom then
+        key = base_key .. ":" ..
+              display:lower():gsub("[%s/%-]", "_")
       end
 
-      if meta then
-        local damage  = meta.damage or 0
-        local display = meta.displayName or meta.name
-        local mod     = meta.name:match("^(.-):")  or "unknown"
-
-        -- Base key from item name + damage
-        local base_key = storage.makeKey(meta.name, damage)
-
-        -- Check if this base_key already exists for a DIFFERENT chest
-        -- If so this is an NBT-differentiated item (like vis crystals)
-        -- Use display name to make key unique
-        local key = base_key
-        if store[key] and store[key].chest ~= bot.name then
-          key = base_key .. ":" ..
-                display:lower():gsub("[%s/%-]", "_")
-        end
-
-        if store[key] then
-          out("SKIP: " .. display .. " (mapped)")
-          skipped = skipped + 1
-        else
-          store[key] = {
-            chest   = bot.name,
-            mid     = mid.name,
-            top     = top.name,
-            display = display,
-            mod     = mod,
-          }
-          out("FOUND: " .. display)
-          found = found + 1
-        end
+      if store[key] then
+        out("SKIP: " .. display .. " (mapped)")
+        skipped = skipped + 1
       else
-        out("EMPTY: " .. bot.name)
-        empty = empty + 1
+        store[key] = {
+          chest   = col.bottom,
+          mid     = col.mid,
+          top     = col.top,
+          display = display,
+          mod     = mod,
+        }
+        out("FOUND: " .. display)
+        found = found + 1
       end
-      i = i + 3
+    else
+      out("EMPTY: col " .. col_idx)
+      empty = empty + 1
     end
   end
 end
