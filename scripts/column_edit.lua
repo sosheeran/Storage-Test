@@ -139,30 +139,12 @@ local function getMonitor()
   pcall(mon.setTextScale, 0.5)
   pcall(mon.setBackgroundColor, colors.black)
   pcall(mon.setTextColor, colors.white)
-  pcall(mon.clear)
 
   return mon
 end
 
-local function centerWrite(y, text, color)
-  local mon = getMonitor()
-  if not mon then return false end
-
-  local oldTerm = term.redirect(mon)
-  local mw, mh = term.getSize()
-
-  if color then setColor(color) end
-  local x = math.max(1, math.floor((mw - #text) / 2) + 1)
-  term.setCursorPos(x, y)
-  term.write(text)
-  resetColor()
-
-  term.redirect(oldTerm)
-  return true
-end
-
-local function monitorClear()
-  local mon = getMonitor()
+local function monitorClear(mon)
+  mon = mon or getMonitor()
   if not mon then return false end
 
   mon.clear()
@@ -170,8 +152,7 @@ local function monitorClear()
   return true
 end
 
-local function drawMonitorChest(y, label, name)
-  local mon = getMonitor()
+local function drawMonitorChest(mon, y, label, name)
   if not mon then return false end
 
   local oldTerm = term.redirect(mon)
@@ -215,10 +196,10 @@ local function drawColumnOnMonitor(colIndex, col)
   local mon = getMonitor()
   if not mon then return false end
 
+  monitorClear(mon)
+
   local oldTerm = term.redirect(mon)
   local mw, mh = term.getSize()
-
-  term.clear()
 
   setColor(colors.yellow)
   local title = "COLUMN " .. tostring(colIndex)
@@ -228,9 +209,9 @@ local function drawColumnOnMonitor(colIndex, col)
 
   term.redirect(oldTerm)
 
-  drawMonitorChest(3,  "TOP",    col.top)
-  drawMonitorChest(12, "MID",    col.mid)
-  drawMonitorChest(21, "BOTTOM", col.bottom)
+  drawMonitorChest(mon, 3,  "TOP",    col.top)
+  drawMonitorChest(mon, 12, "MID",    col.mid)
+  drawMonitorChest(mon, 21, "BOTTOM", col.bottom)
 
   return true
 end
@@ -849,7 +830,7 @@ local function main()
       return
     end
 
-    monitorClear()
+    monitorClear(getMonitor())
 
     print("Loaded columns: " .. tostring(#columns))
     print("")
