@@ -1,8 +1,5 @@
--- lib/storage.lua
--- Handles storage.cfg read/write and chest stock queries
-
+-- scripts/lib/storage.lua
 local M = {}
-
 local CFG         = "/data/storage.cfg"
 local CHEST_SLOTS = 108
 
@@ -49,11 +46,11 @@ function M.save(store)
   for _, key in ipairs(keys) do
     local d = store[key]
     f.writeLine(
-      key          .. " | " ..
-      d.chest      .. " | " ..
+      key            .. " | " ..
+      d.chest        .. " | " ..
       (d.mid  or "") .. " | " ..
       (d.top  or "") .. " | " ..
-      d.display    .. " | " ..
+      d.display      .. " | " ..
       d.mod
     )
   end
@@ -76,7 +73,6 @@ function M.getStock(data)
     end
     return n, s
   end
-
   local bot_n, bot_s = count(data.chest)
   local total = bot_n
   if bot_s >= CHEST_SLOTS then
@@ -86,13 +82,11 @@ function M.getStock(data)
       total = total + count(data.top)
     end
   end
-
   local overflow = false
   if data.top and data.top ~= "" then
     local _, top_s = count(data.top)
     overflow = top_s >= math.floor(CHEST_SLOTS * 0.75)
   end
-
   local pct = math.floor(total / (CHEST_SLOTS * 3 * 64) * 100)
   return total, pct, overflow
 end

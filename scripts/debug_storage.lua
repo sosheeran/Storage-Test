@@ -1,34 +1,26 @@
 -- debug_storage.lua
--- Scans every obsidian chest on the network
--- Prints all unique items found to printer on left side
---
--- Usage: debug_storage
+-- Scans every obsidian chest on network
+-- Prints all unique items to printer on left side
+-- Correctly handles NBT-differentiated items (vis crystals etc)
+-- by using display name as part of the unique key
 
 local printer = require("/scripts/lib/printer")
 local MODEM   = "back"
 
-if not rednet.isOpen(MODEM) then
-  pcall(rednet.open, MODEM)
-end
+if not rednet.isOpen(MODEM) then pcall(rednet.open, MODEM) end
 
 local has_printer = printer.open("Storage Dump")
 
-print("=== DEBUG STORAGE SCAN ===")
-print("")
-
 local function out(line)
-  if has_printer then
-    printer.writeLine(line or "")
-  else
-    print(line or "")
-  end
+  if has_printer then printer.writeLine(line or "")
+  else print(line or "") end
 end
 
 -- Find all obsidian chests
 local chests = {}
 for _, name in ipairs(peripheral.getNames()) do
   if name:find("iron_chest_obsidian") or
-     name:find("ironchest_obsidian")  then
+     name:find("ironchest_obsidian") then
     local num = tonumber(name:match("_(%d+)$"))
     if num then table.insert(chests, {name=name, num=num}) end
   end
@@ -44,9 +36,10 @@ end
 table.sort(chests, function(a,b) return a.num < b.num end)
 print("Found " .. #chests .. " chests - scanning...")
 
--- Collect unique items keyed by item_id:damage
+-- Collect unique items
+-- Key = item_id:damage:displayname to handle NBT variants
 local items_found = {}
-local seen        = {}
+local seen = {}
 
 local i = 1
 while i <= #chests do
@@ -70,9 +63,13 @@ while i <= #chests do
             damage  = meta.damage or 0
             display = meta.displayName or meta.name
           end
-          -- Key includes damage to handle items like vis crystals
+
+          -- Use item_id + damage + display as unique key
+          -- This correctly differentiates NBT items like vis crystals
           local key = stack.name ..
-                      (damage > 0 and (":" .. damage) or "")
+                      ":" .. tostring(damage) ..
+                      ":" .. display:lower():gsub("%s+", "_")
+
           if not seen[key] then
             seen[key] = true
             table.insert(items_found, {
@@ -82,7 +79,7 @@ while i <= #chests do
               chest   = bot.name,
             })
           end
-          break -- one item per bottom chest is enough
+          break
         end
       end
     end
@@ -101,7 +98,6 @@ end)
 print("Found " .. #items_found .. " unique items")
 print("Printing...")
 
--- Print
 out("STORAGE CONTENTS")
 out("Time: " .. tostring(os.time()))
 out(string.rep("-", 25))

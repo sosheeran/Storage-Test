@@ -42,6 +42,6 @@ else
 end
 print("")
 print("Commands:")
-print("  discover        scan chests → /data/storage.cfg")
-print("  debug_storage   dump all items → /data/debug_dump.txt")
-print("  storage_log     show stock levels")
+print("  discover        scan chests → storage.cfg")
+print("  debug_storage   list all items → printer")
+print("  storage_log     show stock levels → printer")

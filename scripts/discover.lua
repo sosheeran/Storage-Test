@@ -1,39 +1,28 @@
 -- discover.lua
--- Scans all obsidian chests on the network
--- Groups into columns of 3 (bottom/mid/top)
--- Reads first item in each bottom chest
+-- Scans obsidian chests, groups into columns of 3
+-- Identifies contents of each bottom chest
+-- Handles NBT-differentiated items (vis crystals etc)
 -- Writes to /data/storage.cfg
 -- Prints results to printer on left side
---
--- Usage: discover
 
 local storage = require("/scripts/lib/storage")
 local printer = require("/scripts/lib/printer")
 local MODEM   = "back"
 
-if not rednet.isOpen(MODEM) then
-  pcall(rednet.open, MODEM)
-end
+if not rednet.isOpen(MODEM) then pcall(rednet.open, MODEM) end
 
--- Open printer
 local has_printer = printer.open("Discover")
 
-print("=== DISCOVER ===")
-print("")
-
 local function out(line)
-  if has_printer then
-    printer.writeLine(line)
-  else
-    print(line)
-  end
+  if has_printer then printer.writeLine(line)
+  else print(line) end
 end
 
 -- Collect all obsidian chests
 local chests = {}
 for _, name in ipairs(peripheral.getNames()) do
   if name:find("iron_chest_obsidian") or
-     name:find("ironchest_obsidian")  then
+     name:find("ironchest_obsidian") then
     local num = tonumber(name:match("_(%d+)$"))
     if num then table.insert(chests, {name=name, num=num}) end
   end
@@ -48,13 +37,19 @@ end
 
 table.sort(chests, function(a,b) return a.num < b.num end)
 out("Found " .. #chests .. " chests")
-if #chests % 3 ~= 0 then
-  out("WARN: not divisible by 3")
-end
+if #chests % 3 ~= 0 then out("WARN: not divisible by 3") end
 out("")
 
 local store   = storage.load()
 local found, skipped, empty, errors = 0, 0, 0, 0
+
+-- Build a lookup of chest names already in store
+-- so we can detect if a key exists but for a DIFFERENT chest
+-- (NBT items like vis crystals share same ID+damage)
+local chest_to_key = {}
+for key, data in pairs(store) do
+  chest_to_key[data.chest] = key
+end
 
 local i = 1
 while i <= #chests do
@@ -66,13 +61,11 @@ while i <= #chests do
     out("SKIP: incomplete at " .. bot.name)
     errors = errors + 1
     i = i + 1
-
   elseif mid.num ~= bot.num+1 or top.num ~= bot.num+2 then
     out("SKIP: non-consecutive " ..
         bot.num..","..mid.num..","..top.num)
     errors = errors + 1
     i = i + 1
-
   else
     local chest = peripheral.wrap(bot.name)
     if not chest then
@@ -94,17 +87,16 @@ while i <= #chests do
         local display = meta.displayName or meta.name
         local mod     = meta.name:match("^(.-):")  or "unknown"
 
-        -- Build key: use name + damage normally
-        -- For NBT-differentiated items (like vis crystals) that share
-        -- the same name AND damage, append the display name to make unique
+        -- Base key from item name + damage
         local base_key = storage.makeKey(meta.name, damage)
-        local key      = base_key
 
-        -- If this key already exists but points to a different chest,
-        -- it means two different items share the same ID+damage (NBT variants)
-        -- Use display name to differentiate them
+        -- Check if this base_key already exists for a DIFFERENT chest
+        -- If so this is an NBT-differentiated item (like vis crystals)
+        -- Use display name to make key unique
+        local key = base_key
         if store[key] and store[key].chest ~= bot.name then
-          key = base_key .. ":" .. display:lower():gsub("%s+","_")
+          key = base_key .. ":" ..
+                display:lower():gsub("[%s/%-]", "_")
         end
 
         if store[key] then
@@ -125,7 +117,6 @@ while i <= #chests do
         out("EMPTY: " .. bot.name)
         empty = empty + 1
       end
-
       i = i + 3
     end
   end

@@ -1,12 +1,12 @@
 -- storage_log.lua
--- Shows current stock levels for all items in storage.cfg
+-- Shows current stock levels from storage.cfg
 -- Prints to printer on left side
 --
 -- Usage:
 --   storage_log              show all
 --   storage_log iron         filter by name/mod/key
---   storage_log --low        show only low stock
---   storage_log --high       show only high/overflow
+--   storage_log --low        low stock only
+--   storage_log --high       high/overflow only
 
 local storage = require("/scripts/lib/storage")
 local printer = require("/scripts/lib/printer")
@@ -17,8 +17,8 @@ local low_only  = false
 local high_only = false
 
 for _, a in ipairs(args) do
-  if a == "--low"       then low_only  = true
-  elseif a == "--high"  then high_only = true
+  if a == "--low"      then low_only  = true
+  elseif a == "--high" then high_only = true
   else filter = a:lower() end
 end
 
@@ -33,11 +33,8 @@ if high_only then title = "Stock HIGH" end
 local has_printer = printer.open(title)
 
 local function out(line)
-  if has_printer then
-    printer.writeLine(line or "")
-  else
-    print(line or "")
-  end
+  if has_printer then printer.writeLine(line or "")
+  else print(line or "") end
 end
 
 local store = storage.load()
@@ -90,15 +87,13 @@ for _, r in ipairs(results) do
   end
 
   local tag = ""
-  if r.overflow        then tag=" OVERFLOW"; overflow_n=overflow_n+1
-  elseif r.pct>=HIGH   then tag=" HIGH";     high_n=high_n+1
-  elseif r.pct<=LOW    then tag=" LOW";      low_n=low_n+1
+  if r.overflow        then tag=" OVR"; overflow_n=overflow_n+1
+  elseif r.pct>=HIGH   then tag=" HI";  high_n=high_n+1
+  elseif r.pct<=LOW    then tag=" LO";  low_n=low_n+1
   end
 
-  -- Format: "  Item Name   42%" or "  Item Name   42% HIGH"
-  local name_part = ("  " .. r.display):sub(1, 18)
-  local pct_part  = string.format("%3d%%%s", r.pct, tag)
-  out(string.format("%-18s %s", name_part, pct_part))
+  local name = ("  " .. r.display):sub(1, 18)
+  out(string.format("%-18s %3d%%%s", name, r.pct, tag))
 end
 
 out("")
