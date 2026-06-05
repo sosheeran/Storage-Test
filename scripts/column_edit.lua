@@ -173,7 +173,7 @@ local function drawMonitorChest(mon, y, label, name)
   local box = {
     "+-------------------+",
     "|                   |",
-    "|---------[O]-------|",
+    "|--------[O]--------|",
     "|                   |",
     "| " .. centerText(num, 17) .. " |",
     "|                   |",
